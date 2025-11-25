@@ -1,0 +1,1169 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>テトリス（Tスピン・ゴースト・ホールド）</title>
+  <style>
+    html, body {
+      height: 100%;
+      margin: 0;
+      padding: 0;
+      overflow: hidden; /* ページ全体のスクロールを無効化（Safari対策） */
+    }
+    body {
+      background: #111;
+      color: #eee;
+      font-family: system-ui, sans-serif;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: flex-start;
+      padding-top: 20px;
+    }
+    h1 {
+      margin: 0 0 8px;
+      font-size: 24px;
+    }
+    #message {
+      height: 20px;
+      font-size: 14px;
+      color: #ffdd55;
+      margin-bottom: 6px;
+    }
+    #container {
+      display: flex;
+      gap: 20px;
+      align-items: flex-start;
+    }
+    #board {
+      background: #222;
+      border: 2px solid #555;
+      box-shadow: 0 0 10px #000;
+    }
+    #panel {
+      min-width: 190px;
+      padding: 10px 14px;
+      background: #1b1b1b;
+      border-radius: 8px;
+      border: 1px solid #444;
+      box-shadow: 0 0 10px #000;
+      font-size: 14px;
+    }
+    #panel h2 {
+      margin-top: 0;
+      font-size: 16px;
+    }
+    #panel p {
+      margin: 4px 0;
+    }
+    #panel small {
+      color: #aaa;
+      font-size: 12px;
+    }
+
+    #orientationWarning {
+      position: fixed;
+      inset: 0;
+      display: none;
+      align-items: center;
+      justify-content: center;
+      background: rgba(0, 0, 0, 0.9);
+      color: #fff;
+      text-align: center;
+      padding: 20px;
+      box-sizing: border-box;
+      z-index: 999;
+      font-size: 16px;
+    }
+
+    /* スマホなどの小さい画面で横向きのときは「縦向きで遊んで」と表示してゲームを隠す */
+    @media screen and (max-width: 900px) and (orientation: landscape) {
+      #orientationWarning {
+        display: flex;
+      }
+      #container,
+      #touchControls,
+      h1,
+      #message {
+        display: none;
+      }
+    }
+
+    /* スマホの縦向きではボードとパネルを縦に並べる */
+    @media screen and (max-width: 900px) and (orientation: portrait) {
+      #container {
+        flex-direction: column;
+        align-items: center;
+      }
+    }
+
+    #previewContainer {
+      display: flex;
+      justify-content: space-between;
+      gap: 8px;
+      margin: 6px 0 4px;
+    }
+    .preview-block {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      font-size: 12px;
+    }
+
+    #holdCanvas,
+    #nextCanvas {
+      background: #222;
+      border: 1px solid #555;
+      margin-top: 2px;
+      box-shadow: 0 0 4px #000 inset;
+    }
+    button {
+      margin-top: 8px;
+      padding: 6px 10px;
+      border-radius: 6px;
+      border: none;
+      cursor: pointer;
+      background: #2d8cff;
+      color: #fff;
+      font-weight: bold;
+    }
+    button:hover {
+      filter: brightness(1.1);
+    }
+
+    /* ===== タッチ操作用ボタン ===== */
+    #touchControls {
+      margin-top: 12px;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 6px;
+    }
+
+    #touchControls .row {
+      display: flex;
+      gap: 6px;
+    }
+
+    #touchControls button {
+      min-width: 48px;
+      min-height: 48px;
+      font-size: 18px;
+      border-radius: 8px;
+      border: none;
+      cursor: pointer;
+      background: #333;
+      color: #fff;
+    }
+
+    #touchControls button:active {
+      filter: brightness(1.3);
+    }
+
+    /* PCでは非表示（スマホだけに表示したい場合） */
+    @media (min-width: 801px) {
+      #touchControls {
+        display: none;
+      }
+    }
+  </style>
+</head>
+<body>
+  <div id="orientationWarning">
+    画面を縦向き（ポートレート）に回転してプレイしてください。
+  </div>
+
+  <h1>テトリス（Tスピン・ゴースト・ホールド）</h1>
+  <div id="message"></div>
+  <div id="container">
+    <canvas id="board"></canvas>
+    <div id="panel">
+      <h2>ステータス</h2>
+      <p>スコア: <span id="score">0</span></p>
+      <p>レベル: <span id="level">1</span></p>
+      <p>ライン: <span id="lines">0</span></p>
+
+      <div id="previewContainer">
+        <div class="preview-block">
+          <p>ホールド: <span id="holdPieceLabel">-</span></p>
+          <canvas id="holdCanvas"></canvas>
+        </div>
+        <div class="preview-block">
+          <p>ネクスト</p>
+          <canvas id="nextCanvas"></canvas>
+          <p><small>次の4個: <span id="nextPieceLabel">-</span></small></p>
+        </div>
+      </div>
+
+      <button id="restartBtn">リスタート</button>
+      <hr />
+      <p><b>操作</b></p>
+      <p>
+        A / D : 左右移動<br />
+        S : 早く落とす（ソフトドロップ）<br />
+        W : 一気に落とす（ハードドロップ）<br />
+        ← : 左回転<br />
+        → : 右回転<br />
+        C : ホールド
+      </p>
+      <small>
+        Tミノで回転しながら隙間にねじ込むと<br>
+        T-SPINとしてボーナス加点されます。
+      </small>
+    </div>
+  </div>
+
+  <!-- ===== タッチ操作ボタン ===== -->
+  <div id="touchControls">
+    <div class="row">
+      <button data-action="rotateLeft">↺</button>
+      <button data-action="hardDrop">⬇︎!</button>
+      <button data-action="rotateRight">↻</button>
+    </div>
+    <div class="row">
+      <button data-action="left">←</button>
+      <button data-action="softDrop">↓</button>
+      <button data-action="right">→</button>
+      <button data-action="hold">HOLD</button>
+    </div>
+  </div>
+
+  <script>
+    // ===== 基本設定 =====
+    const COLS = 10;
+    const ROWS = 20;
+
+    // 画面幅に応じてブロックサイズを調整（スマホでも見やすく）
+    const maxBlockSize = 32; // PCで大きくなりすぎないよう上限
+    const BLOCK_SIZE = Math.min(
+      maxBlockSize,
+      Math.floor(window.innerWidth * 0.8 / COLS) // 画面幅の80%をボードに使う
+    );
+
+    const canvas = document.getElementById("board");
+    const ctx = canvas.getContext("2d");
+    canvas.width = COLS * BLOCK_SIZE;
+    canvas.height = ROWS * BLOCK_SIZE;
+
+    // HTML要素
+    const scoreEl = document.getElementById("score");
+    const levelEl = document.getElementById("level");
+    const linesEl = document.getElementById("lines");
+    const restartBtn = document.getElementById("restartBtn");
+    const nextPieceLabel = document.getElementById("nextPieceLabel");
+    const holdPieceLabel = document.getElementById("holdPieceLabel");
+    const messageEl = document.getElementById("message");
+    const touchControls = document.getElementById("touchControls");
+
+    // プレビュー用キャンバス
+    const holdCanvasEl = document.getElementById("holdCanvas");
+    const nextCanvasEl = document.getElementById("nextCanvas");
+    const holdCtx = holdCanvasEl.getContext("2d");
+    const nextCtx = nextCanvasEl.getContext("2d");
+
+    const PREVIEW_CELL = 16;
+    // ホールドは 4x4 のエリア
+    holdCanvasEl.width = 4 * PREVIEW_CELL;
+    holdCanvasEl.height = 4 * PREVIEW_CELL;
+
+    // ネクストは 4x(4*4) の縦長（4個分）
+    nextCanvasEl.width = 4 * PREVIEW_CELL;
+    nextCanvasEl.height = 4 * 4 * PREVIEW_CELL;
+
+    // テトリミノ定義
+    const TETROMINOES = [
+      null,
+      { // 1: I
+        name: "I",
+        color: "#00ffff",
+        blocks: [
+          [0, 0],
+          [-1, 0],
+          [1, 0],
+          [2, 0],
+        ],
+      },
+      { // 2: O
+        name: "O",
+        color: "#ffff00",
+        blocks: [
+          [0, 0],
+          [1, 0],
+          [0, 1],
+          [1, 1],
+        ],
+      },
+      { // 3: T
+        name: "T",
+        color: "#aa00ff",
+        blocks: [
+          [0, 0],
+          [-1, 0],
+          [1, 0],
+          [0, 1],
+        ],
+      },
+      { // 4: S
+        name: "S",
+        color: "#ff0000",
+        blocks: [
+          [0, 0],
+          [-1, 0],
+          [0, 1],
+          [1, 1],
+        ],
+      },
+      { // 5: Z
+        name: "Z",
+        color: "#00ff00",
+        blocks: [
+          [0, 0],
+          [1, 0],
+          [0, 1],
+          [-1, 1],
+        ],
+      },
+      { // 6: J
+        name: "J",
+        color: "#ff8800",
+        blocks: [
+          [0, 0],
+          [-1, 0],
+          [1, 0],
+          [-1, 1],
+        ],
+      },
+      { // 7: L
+        name: "L",
+        color: "#0000ff",
+        blocks: [
+          [0, 0],
+          [-1, 0],
+          [1, 0],
+          [1, 1],
+        ],
+      },
+    ];
+
+    // ===== グローバル状態 =====
+    let board;
+    let currentPiece;
+    let score;
+    let level;
+    let lines;
+    let dropCounter;
+    let dropInterval;
+    let lastTime;
+    let gameOver;
+    let animationId;
+
+    let nextQueue = [];
+    let holdType = null;
+    let canHold = true;
+
+    // 7種一巡用バッグ
+    let bag = [];
+
+    let lastMoveWasRotation = false;
+
+    // ===== 入力状態・DAS/ARR・IRS =====
+    let leftHeld = false;
+    let rightHeld = false;
+    // 先行回転（IRS）：-1=左回転押しっぱ, 1=右回転押しっぱ, 0=なし
+    let rotateHeldDir = 0;
+
+    let dasTimer = 0;
+    let arrTimer = 0;
+    const DAS = 150; // ms：押しっぱなしにしてからオート移動が始まるまで
+    const ARR = 30;  // ms：オート移動の間隔（小さいほど速い）
+
+    // ===== ロック遅延 =====
+    let lockDelay = 500; // ms：地面についてからロックするまでの時間
+    let lockTimer = 0;
+    let grounded = false; // 今フロアに接しているかどうか
+
+    // ===== 盤面 =====
+    function createBoard() {
+      const matrix = [];
+      for (let y = 0; y < ROWS; y++) {
+        matrix.push(new Array(COLS).fill(null));
+      }
+      return matrix;
+    }
+
+    // ===== ピース生成 =====
+    // 7種一巡（7-bag）ランダマイザ
+    function randomType() {
+      // バッグが空なら 1〜7 をシャッフルして補充
+      if (bag.length === 0) {
+        bag = [1, 2, 3, 4, 5, 6, 7];
+        for (let i = bag.length - 1; i > 0; i--) {
+          const j = Math.floor(Math.random() * (i + 1));
+          [bag[i], bag[j]] = [bag[j], bag[i]];
+        }
+      }
+      // バッグの末尾から1つ取り出して返す
+      return bag.pop();
+    }
+
+    function createPiece(type) {
+      const shape = TETROMINOES[type];
+      return {
+        x: Math.floor(COLS / 2),
+        y: 0,
+        rotation: 0,
+        type: type,
+        shape: shape,
+      };
+    }
+
+    function getBlocks(piece) {
+      let blocks = piece.shape.blocks;
+      // piece.rotation 回だけ時計回り（CW）に回転（画面座標系：右が+X, 下が+Y）
+      for (let r = 0; r < piece.rotation; r++) {
+        blocks = blocks.map(([x, y]) => [y, -x]);
+      }
+      return blocks;
+    }
+
+    // ===== 衝突判定 =====
+    function isColliding(piece) {
+      const blocks = getBlocks(piece);
+      for (const [bx, by] of blocks) {
+        const x = piece.x + bx;
+        const y = piece.y + by;
+
+        if (x < 0 || x >= COLS || y >= ROWS) {
+          return true;
+        }
+        if (y >= 0 && board[y][x]) {
+          return true;
+        }
+      }
+      return false;
+    }
+
+    // このピースが「1マス下に動けない = 地面についているか」を判定
+    function isOnGround(piece) {
+      const test = { ...piece, y: piece.y + 1 };
+      return isColliding(test);
+    }
+
+    // ===== Tスピン判定 =====
+    function isTSpin(piece) {
+      if (piece.type !== 3) return false; // Tミノのみ
+      const cx = piece.x;
+      const cy = piece.y;
+      const corners = [
+        [cx - 1, cy - 1],
+        [cx + 1, cy - 1],
+        [cx - 1, cy + 1],
+        [cx + 1, cy + 1],
+      ];
+      let filled = 0;
+      for (const [x, y] of corners) {
+        if (
+          x < 0 || x >= COLS || y >= ROWS ||
+          (y >= 0 && board[y][x] !== null)
+        ) {
+          filled++;
+        }
+      }
+      return filled >= 3;
+    }
+
+    // ===== 固定 =====
+    function lockPiece() {
+      grounded = false;
+      lockTimer = 0;
+
+      const blocks = getBlocks(currentPiece);
+      for (const [bx, by] of blocks) {
+        const x = currentPiece.x + bx;
+        const y = currentPiece.y + by;
+        if (y >= 0 && y < ROWS && x >= 0 && x < COLS) {
+          board[y][x] = { color: currentPiece.shape.color };
+        }
+      }
+
+      const tSpin = (currentPiece.type === 3) &&
+                    lastMoveWasRotation &&
+                    isTSpin(currentPiece);
+
+      const linesCleared = clearLines();
+      applyScoring(linesCleared, tSpin);
+
+      spawnFromNext();
+    }
+
+    // ===== ライン消去 =====
+    function clearLines() {
+      let linesCleared = 0;
+      for (let y = ROWS - 1; y >= 0; ) {
+        if (board[y].every(cell => cell !== null)) {
+          board.splice(y, 1);
+          board.unshift(new Array(COLS).fill(null));
+          linesCleared++;
+        } else {
+          y--;
+        }
+      }
+      return linesCleared;
+    }
+
+    // ===== スコア・レベル =====
+    function applyScoring(linesCleared, tSpin) {
+      let addScore = 0;
+      let msg = "";
+
+      if (tSpin) {
+        const tspinTable = [0, 800, 1200, 1600];
+        if (linesCleared === 0) {
+          addScore = 400;
+          msg = "T-SPIN!";
+        } else if (linesCleared >= 1 && linesCleared <= 3) {
+          addScore = tspinTable[linesCleared];
+          const names = ["", "T-SPIN SINGLE!", "T-SPIN DOUBLE!!", "T-SPIN TRIPLE!!!"];
+          msg = names[linesCleared];
+        }
+      } else {
+        const normalTable = [0, 100, 300, 500, 800];
+        if (linesCleared > 0) {
+          addScore = normalTable[linesCleared];
+          msg = linesCleared === 4 ? "TETRIS!" : `${linesCleared} LINE CLEAR`;
+        }
+      }
+
+      if (addScore > 0) {
+        score += addScore * level;
+        lines += linesCleared;
+      }
+
+      const newLevel = Math.floor(lines / 10) + 1;
+      if (newLevel !== level) {
+        level = newLevel;
+        dropInterval = Math.max(100, 800 - (level - 1) * 60);
+      }
+
+      updateStatus();
+      setMessage(msg);
+    }
+
+    function setMessage(msg) {
+      messageEl.textContent = msg || "";
+      if (!msg) return;
+      clearTimeout(setMessage._timer);
+      setMessage._timer = setTimeout(() => {
+        messageEl.textContent = "";
+      }, 1200);
+    }
+
+    // ===== ネクスト・ホールド =====
+    function fillNextQueue() {
+      while (nextQueue.length < 5) {
+        nextQueue.push(randomType());
+      }
+    }
+
+    function spawnFromNext() {
+      // キューにある程度ためておく
+      fillNextQueue();
+
+      const type = nextQueue.shift();
+      currentPiece = createPiece(type);
+
+      // 次の分を補充
+      fillNextQueue();
+
+      canHold = true;
+      lastMoveWasRotation = false;
+      updatePreviewLabels();
+
+      // 先行回転（IRS）：回転キー押しっぱならスポーン直後に一回だけ回転
+      if (rotateHeldDir === 1) {
+        rotatePiece(1);
+      } else if (rotateHeldDir === -1) {
+        rotatePiece(-1);
+      }
+
+      if (isColliding(currentPiece)) {
+        gameOver = true;
+        cancelAnimationFrame(animationId);
+        alert("ゲームオーバー！ スコア: " + score);
+      }
+    }
+
+    function getPieceName(type) {
+      if (!type || !TETROMINOES[type]) return "-";
+      return TETROMINOES[type].name;
+    }
+
+    // ===== プレビュー描画 =====
+    function drawMiniPiece(ctx, type, cellSize, offsetXCells, offsetYCells) {
+      if (!type || !TETROMINOES[type]) return;
+      const blocks = TETROMINOES[type].blocks;
+      const xs = blocks.map(b => b[0]);
+      const ys = blocks.map(b => b[1]);
+      const minX = Math.min(...xs);
+      const maxX = Math.max(...xs);
+      const minY = Math.min(...ys);
+      const maxY = Math.max(...ys);
+      const w = maxX - minX + 1;
+      const h = maxY - minY + 1;
+
+      // 指定されたセル領域の中央に配置
+      const areaW = 4;
+      const areaH = 4;
+      const baseX = offsetXCells + (areaW - w) / 2 - minX;
+      const baseY = offsetYCells + (areaH - h) / 2 - minY;
+
+      ctx.fillStyle = TETROMINOES[type].color;
+      ctx.strokeStyle = "#111";
+
+      for (const [bx, by] of blocks) {
+        const x = (baseX + bx) * cellSize;
+        const y = (baseY + by) * cellSize;
+        ctx.fillRect(x, y, cellSize, cellSize);
+        ctx.strokeRect(x, y, cellSize, cellSize);
+      }
+    }
+
+    function updatePreviewCanvases() {
+      // ホールド
+      holdCtx.clearRect(0, 0, holdCanvasEl.width, holdCanvasEl.height);
+      if (holdType) {
+        drawMiniPiece(holdCtx, holdType, PREVIEW_CELL, 0, 0);
+      }
+
+      // ネクスト（上から最大4個を表示）
+      nextCtx.clearRect(0, 0, nextCanvasEl.width, nextCanvasEl.height);
+      const maxShow = Math.min(4, nextQueue.length);
+      for (let i = 0; i < maxShow; i++) {
+        const type = nextQueue[i];
+        const offsetYCells = i * 4; // 1個あたり縦4セル分の領域
+        drawMiniPiece(nextCtx, type, PREVIEW_CELL, 0, offsetYCells);
+      }
+    }
+
+    // 既存ラベル更新＋プレビュー更新
+    function updatePreviewLabels() {
+      const nextType = nextQueue.length > 0 ? nextQueue[0] : null;
+      nextPieceLabel.textContent = getPieceName(nextType);
+      holdPieceLabel.textContent = getPieceName(holdType);
+      updatePreviewCanvases();
+    }
+
+    // ===== ゴースト =====
+    function getGhostY(piece) {
+      const ghost = { ...piece };
+      while (true) {
+        const test = { ...ghost, y: ghost.y + 1 };
+        if (isColliding(test)) break;
+        ghost.y++;
+      }
+      return ghost.y;
+    }
+
+    // ===== 描画 =====
+    function drawCell(x, y, color) {
+      ctx.fillStyle = color;
+      ctx.fillRect(
+        x * BLOCK_SIZE,
+        y * BLOCK_SIZE,
+        BLOCK_SIZE,
+        BLOCK_SIZE
+      );
+      ctx.strokeStyle = "#111";
+      ctx.strokeRect(
+        x * BLOCK_SIZE,
+        y * BLOCK_SIZE,
+        BLOCK_SIZE,
+        BLOCK_SIZE
+      );
+    }
+
+    function drawBoard() {
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+      for (let y = 0; y < ROWS; y++) {
+        for (let x = 0; x < COLS; x++) {
+          const cell = board[y][x];
+          if (cell) {
+            drawCell(x, y, cell.color);
+          } else {
+            ctx.strokeStyle = "#333";
+            ctx.strokeRect(
+              x * BLOCK_SIZE,
+              y * BLOCK_SIZE,
+              BLOCK_SIZE,
+              BLOCK_SIZE
+            );
+          }
+        }
+      }
+
+      if (currentPiece && !gameOver) {
+        const blocks = getBlocks(currentPiece);
+
+        // ゴースト
+        const ghostY = getGhostY(currentPiece);
+        ctx.globalAlpha = 0.25;
+        for (const [bx, by] of blocks) {
+          const gx = currentPiece.x + bx;
+          const gy = ghostY + by;
+          if (gy >= 0) {
+            drawCell(gx, gy, currentPiece.shape.color);
+          }
+        }
+        ctx.globalAlpha = 1.0;
+
+        // 本体
+        for (const [bx, by] of blocks) {
+          const x = currentPiece.x + bx;
+          const y = currentPiece.y + by;
+          if (y >= 0) {
+            drawCell(x, y, currentPiece.shape.color);
+          }
+        }
+      }
+    }
+
+    // ===== ステータス =====
+    function updateStatus() {
+      scoreEl.textContent = score;
+      levelEl.textContent = level;
+      linesEl.textContent = lines;
+    }
+
+    // ===== 移動（ロック遅延対応）=====
+    function movePiece(dx, dy) {
+      if (!currentPiece || gameOver) return false;
+      currentPiece.x += dx;
+      currentPiece.y += dy;
+      if (isColliding(currentPiece)) {
+        currentPiece.x -= dx;
+        currentPiece.y -= dy;
+        return false;
+      }
+      if (dx !== 0 || dy !== 0) {
+        lastMoveWasRotation = false;
+        // 動かしたらロックタイマーをリセット
+        if (isOnGround(currentPiece)) {
+          grounded = true;
+        } else {
+          grounded = false;
+        }
+        lockTimer = 0;
+      }
+      return true;
+    }
+
+    // ===== SRS風キックテーブル =====
+    // JLSTZ 用
+    const JLSTZ_KICKS = {
+      "0>1": [[0, 0], [-1, 0], [-1, 1], [0, -2], [-1, -2]],
+      "1>0": [[0, 0], [ 1, 0], [ 1,-1], [0,  2], [ 1,  2]],
+      "1>2": [[0, 0], [ 1, 0], [ 1,-1], [0,  2], [ 1,  2]],
+      "2>1": [[0, 0], [-1, 0], [-1, 1], [0, -2], [-1, -2]],
+      "2>3": [[0, 0], [ 1, 0], [ 1, 1], [0, -2], [ 1, -2]],
+      "3>2": [[0, 0], [-1, 0], [-1,-1], [0,  2], [-1,  2]],
+      "3>0": [[0, 0], [-1, 0], [-1,-1], [0,  2], [-1,  2]],
+      "0>3": [[0, 0], [ 1, 0], [ 1, 1], [0, -2], [ 1, -2]],
+    };
+
+    // Iミノ用
+    const I_KICKS = {
+      "0>1": [[0, 0], [-2, 0], [ 1, 0], [-2,-1], [ 1, 2]],
+      "1>0": [[0, 0], [ 2, 0], [-1, 0], [ 2, 1], [-1,-2]],
+      "1>2": [[0, 0], [-1, 0], [ 2, 0], [-1, 2], [ 2,-1]],
+      "2>1": [[0, 0], [ 1, 0], [-2, 0], [ 1,-2], [-2, 1]],
+      "2>3": [[0, 0], [ 2, 0], [-1, 0], [ 2, 1], [-1,-2]],
+      "3>2": [[0, 0], [-2, 0], [ 1, 0], [-2,-1], [ 1, 2]],
+      "3>0": [[0, 0], [ 1, 0], [-2, 0], [ 1,-2], [-2, 1]],
+      "0>3": [[0, 0], [-1, 0], [ 2, 0], [-1, 2], [ 2,-1]],
+    };
+
+    function getKickTable(pieceType, from, to) {
+      const key = `${from}>${to}`;
+      let kicks;
+      if (pieceType === 1) { // I
+        kicks = I_KICKS[key] || [[0, 0]];
+      } else if (pieceType === 2) { // O はほぼキックなし
+        kicks = [[0, 0]];
+      } else {
+        kicks = JLSTZ_KICKS[key] || [[0, 0]];
+      }
+      // SRSの定義はY軸上方向が正だが、このゲームは下方向が正なので dy を反転する
+      return kicks.map(([dx, dy]) => [dx, -dy]);
+    }
+
+    // ===== 回転（SRS風キック + フォールバック壁蹴り + ロック遅延対応） =====
+    function rotatePiece(dir = 1) {
+      if (!currentPiece || gameOver) return;
+
+      const oldRotation = currentPiece.rotation;
+      const newRotation = (oldRotation + dir + 4) % 4;
+      const oldX = currentPiece.x;
+      const oldY = currentPiece.y;
+
+      // Oミノはキックほぼなし
+      if (currentPiece.type === 2) {
+        currentPiece.rotation = newRotation;
+        if (isColliding(currentPiece)) {
+          currentPiece.rotation = oldRotation;
+          return;
+        }
+        lastMoveWasRotation = true;
+        // 回転成功 → ロックタイマーリセット
+        if (isOnGround(currentPiece)) {
+          grounded = true;
+        } else {
+          grounded = false;
+        }
+        lockTimer = 0;
+        return;
+      }
+
+      const kicks = getKickTable(currentPiece.type, oldRotation, newRotation);
+
+      // ① SRSキック候補を順番に試す
+      for (const [dx, dy] of kicks) {
+        currentPiece.x = oldX + dx;
+        currentPiece.y = oldY + dy;
+        currentPiece.rotation = newRotation;
+
+        if (!isColliding(currentPiece)) {
+          lastMoveWasRotation = true;
+          if (isOnGround(currentPiece)) {
+            grounded = true;
+          } else {
+            grounded = false;
+          }
+          lockTimer = 0;
+          return;
+        }
+      }
+
+      // ② それでもダメなら「横にずらす簡易壁蹴り」を試す（フォールバック）
+      const fallbackDxList = dir === 1 ? [1, 2, -1, -2] : [-1, -2, 1, 2];
+      for (const dx of fallbackDxList) {
+        currentPiece.x = oldX + dx;
+        currentPiece.y = oldY;
+        currentPiece.rotation = newRotation;
+
+        if (!isColliding(currentPiece)) {
+          lastMoveWasRotation = true;
+          if (isOnGround(currentPiece)) {
+            grounded = true;
+          } else {
+            grounded = false;
+          }
+          lockTimer = 0;
+          return;
+        }
+      }
+
+      // ③ どれもダメなら元に戻す
+      currentPiece.x = oldX;
+      currentPiece.y = oldY;
+      currentPiece.rotation = oldRotation;
+    }
+
+    // ===== 落下 =====
+    function softDrop() {
+      if (!currentPiece || gameOver) return;
+      if (!movePiece(0, 1)) {
+        // 下に動けない = 地面に着いた
+        grounded = true;
+      } else {
+        grounded = false;
+        lockTimer = 0;
+      }
+    }
+
+    function hardDrop() {
+      if (!currentPiece || gameOver) return;
+      while (movePiece(0, 1)) {}
+      lockPiece();
+    }
+
+    // ===== ホールド =====
+    function holdCurrentPiece() {
+      if (!currentPiece || gameOver || !canHold) return;
+      lastMoveWasRotation = false;
+
+      if (holdType === null) {
+        holdType = currentPiece.type;
+        spawnFromNext();
+      } else {
+        const tmp = holdType;
+        holdType = currentPiece.type;
+        currentPiece = createPiece(tmp);
+        if (isColliding(currentPiece)) {
+          gameOver = true;
+          cancelAnimationFrame(animationId);
+          alert("ゲームオーバー！ スコア: " + score);
+        }
+      }
+      canHold = false;
+      updatePreviewLabels();
+    }
+
+    // ===== 水平オートシフト（DAS & ARR） =====
+    function handleHorizontalAutoShift(delta) {
+      let dir = 0;
+      if (leftHeld && !rightHeld) {
+        dir = -1;
+      } else if (rightHeld && !leftHeld) {
+        dir = 1;
+      } else {
+        // 両方離されている or 両押しならリセット
+        dasTimer = 0;
+        arrTimer = 0;
+        return;
+      }
+
+      // DAS 経過前は何もしない
+      if (dasTimer < DAS) {
+        dasTimer += delta;
+        return;
+      }
+
+      // ARR間隔ごとに1マスずつ動かす
+      arrTimer += delta;
+      if (arrTimer >= ARR) {
+        movePiece(dir, 0);
+        arrTimer = 0;
+      }
+    }
+
+    // ===== ループ（ロック遅延対応） =====
+    function update(time = 0) {
+      const delta = time - lastTime;
+      lastTime = time;
+      dropCounter += delta;
+
+      // 左右押しっぱDAS/ARR
+      handleHorizontalAutoShift(delta);
+
+      // 重力による落下
+      if (dropCounter > dropInterval) {
+        dropCounter = 0;
+
+        if (!currentPiece || gameOver) {
+          // 何もしない
+        } else if (!movePiece(0, 1)) {
+          // 下に動けなかった = 地面にいる
+          grounded = true;
+        } else {
+          grounded = false;
+          lockTimer = 0;
+        }
+      }
+
+      // ロック遅延：地面に着いてから一定時間経ったらロック
+      if (grounded && !gameOver) {
+        lockTimer += delta;
+        if (lockTimer >= lockDelay) {
+          lockPiece();
+        }
+      }
+
+      drawBoard();
+      if (!gameOver) {
+        animationId = requestAnimationFrame(update);
+      }
+    }
+
+    // ===== 初期化 =====
+    function resetGame() {
+      board = createBoard();
+      score = 0;
+      level = 1;
+      lines = 0;
+      dropCounter = 0;
+      dropInterval = 800;
+      lastTime = 0;
+      gameOver = false;
+
+      nextQueue = [];
+      holdType = null;
+      canHold = true;
+      lastMoveWasRotation = false;
+      bag = [];
+
+      // 入力状態リセット
+      leftHeld = false;
+      rightHeld = false;
+      rotateHeldDir = 0;
+      dasTimer = 0;
+      arrTimer = 0;
+      grounded = false;
+      lockTimer = 0;
+
+      updateStatus();
+      updatePreviewLabels();
+      setMessage("");
+
+      spawnFromNext();
+      cancelAnimationFrame(animationId);
+      animationId = requestAnimationFrame(update);
+    }
+
+    // ===== ★ キーボード入力（スクロール完全防止版） =====
+    const scrollBlockKeys = [
+      "ArrowLeft", "ArrowRight", "ArrowUp", "ArrowDown",
+      " ", "Space", "Spacebar",
+      "PageUp", "PageDown", "Home", "End"
+    ];
+
+    function shouldBlockScrollKey(e) {
+      const tag = e.target && e.target.tagName;
+      if (tag === "INPUT" || tag === "TEXTAREA" || (e.target && e.target.isContentEditable)) {
+        return false;
+      }
+      return scrollBlockKeys.includes(e.key) || scrollBlockKeys.includes(e.code);
+    }
+
+    function handleKeyDown(e) {
+      // Safari を含むブラウザでのスクロールを完全に無効化
+      if (shouldBlockScrollKey(e)) {
+        e.preventDefault();
+        e.stopPropagation();
+      }
+
+      if (gameOver) return;
+
+      switch (e.code) {
+        // 移動・落下: WASD
+        case "KeyA":
+          movePiece(-1, 0); // 押した瞬間にも1マス動かす
+          leftHeld = true;
+          dasTimer = 0;
+          arrTimer = 0;
+          break;
+
+        case "KeyD":
+          movePiece(1, 0);
+          rightHeld = true;
+          dasTimer = 0;
+          arrTimer = 0;
+          break;
+
+        case "KeyS":
+          softDrop();
+          dropCounter = 0;
+          break;
+
+        case "KeyW":
+          hardDrop();
+          dropCounter = 0;
+          break;
+
+        // 回転: 矢印キー左右（押しっぱでIRSにも使う）
+        case "ArrowRight":
+          // 機能反転：右キーで左回転
+          rotatePiece(-1);
+          rotateHeldDir = -1;
+          break;
+        case "ArrowLeft":
+          // 機能反転：左キーで右回転
+          rotatePiece(1);
+          rotateHeldDir = 1;
+          break;
+
+        // 矢印キー上下はゲーム上の割り当てなし（スクロール防止だけ）
+
+        case "KeyC":
+          holdCurrentPiece();
+          break;
+      }
+    }
+
+    function handleKeyUp(e) {
+      if (shouldBlockScrollKey(e)) {
+        e.preventDefault();
+        e.stopPropagation();
+      }
+
+      switch (e.code) {
+        case "KeyA":
+          leftHeld = false;
+          dasTimer = 0;
+          arrTimer = 0;
+          break;
+        case "KeyD":
+          rightHeld = false;
+          dasTimer = 0;
+          arrTimer = 0;
+          break;
+        case "ArrowRight":
+          if (rotateHeldDir === -1) rotateHeldDir = 0;
+          break;
+        case "ArrowLeft":
+          if (rotateHeldDir === 1) rotateHeldDir = 0;
+          break;
+      }
+    }
+
+    // ===== タッチボタンのアクション処理 =====
+    function handleTouchAction(action) {
+      if (gameOver) return;
+
+      switch (action) {
+        case "left":
+          movePiece(-1, 0);
+          break;
+        case "right":
+          movePiece(1, 0);
+          break;
+        case "softDrop":
+          softDrop();
+          dropCounter = 0;
+          break;
+        case "hardDrop":
+          hardDrop();
+          dropCounter = 0;
+          break;
+        case "rotateLeft":
+          rotatePiece(-1);
+          break;
+        case "rotateRight":
+          rotatePiece(1);
+          break;
+        case "hold":
+          holdCurrentPiece();
+          break;
+      }
+    }
+
+    // キャプチャ段階でフックして確実にブラウザ側のスクロールを止める
+    window.addEventListener("keydown", handleKeyDown, { capture: true });
+    window.addEventListener("keyup", handleKeyUp, { capture: true });
+
+    restartBtn.addEventListener("click", () => {
+      resetGame();
+    });
+
+    // タッチボタンのイベント設定
+    if (touchControls) {
+      const buttons = touchControls.querySelectorAll("button[data-action]");
+      buttons.forEach(btn => {
+        const action = btn.getAttribute("data-action");
+
+        const handler = (e) => {
+          e.preventDefault();
+          e.stopPropagation();
+          handleTouchAction(action);
+        };
+
+        btn.addEventListener("touchstart", handler);
+        btn.addEventListener("mousedown", handler);
+      });
+    }
+
+    resetGame();
+  </script>
+</body>
+</html>
