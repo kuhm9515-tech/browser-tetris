@@ -9,7 +9,8 @@
       height: 100%;
       margin: 0;
       padding: 0;
-      overflow: hidden; /* ページ全体のスクロールを無効化（Safari対策） */
+      overflow-x: hidden;  /* 横スクロールは無効化 */
+      overflow-y: hidden;  /* デフォルトは従来どおりスクロール無し */
     }
     body {
       background: #111;
@@ -90,11 +91,14 @@
       }
     }
 
-    /* スマホの縦向きではボードとパネルを縦に並べる */
+    /* スマホの縦向きではボードとパネルを縦に並べる（画面内に収まるようJS側で盤面を小さくする） */
     @media screen and (max-width: 900px) and (orientation: portrait) {
       #container {
         flex-direction: column;
         align-items: center;
+      }
+      html, body {
+        overflow-y: hidden;  /* 縦スクロール無し：1画面に収める方針 */
       }
     }
 
@@ -234,12 +238,19 @@
     const COLS = 10;
     const ROWS = 20;
 
-    // 画面幅に応じてブロックサイズを調整（スマホでも見やすく）
-    const maxBlockSize = 32; // PCで大きくなりすぎないよう上限
-    const BLOCK_SIZE = Math.min(
-      maxBlockSize,
-      Math.floor(window.innerWidth * 0.8 / COLS) // 画面幅の80%をボードに使う
-    );
+    // 画面サイズに応じてブロックサイズを調整
+    const isMobilePortrait =
+      window.innerWidth <= 900 && window.innerHeight > window.innerWidth;
+
+    // PC/タブレットは少し大きめ、スマホ縦向きは小さめ
+    const maxBlockSizeDesktop = 32;
+    const maxBlockSizeMobile = 18;
+
+    // 横幅基準のサイズ（横幅の90%を盤面に使う）
+    const blockFromWidth = Math.floor(window.innerWidth * 0.9 / COLS);
+    const maxBlockSize = isMobilePortrait ? maxBlockSizeMobile : maxBlockSizeDesktop;
+
+    const BLOCK_SIZE = Math.min(maxBlockSize, blockFromWidth);
 
     const canvas = document.getElementById("board");
     const ctx = canvas.getContext("2d");
