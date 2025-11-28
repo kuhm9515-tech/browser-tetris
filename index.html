@@ -107,6 +107,9 @@
       #panel p {
         margin: 2px 0;
       }
+      #previewContainer {
+        margin-top: 0;  /* ネクストのUIを少し上に詰める */
+      }
       html, body {
         overflow-y: hidden;  /* 縦スクロール無し：1画面に収める方針 */
       }
@@ -151,8 +154,11 @@
       margin-top: 12px;
       display: flex;
       flex-direction: column;
-      align-items: center;
-      gap: 6px;
+      align-items: flex-start;  /* 左寄せにする */
+      gap: 8px;
+      width: 100%;
+      padding-left: 16px;       /* 画面左から少し内側に寄せる */
+      box-sizing: border-box;
     }
 
     #touchControls .row {
@@ -161,10 +167,10 @@
     }
 
     #touchControls button {
-      min-width: 48px;
-      min-height: 48px;
-      font-size: 18px;
-      border-radius: 8px;
+      min-width: 64px;    /* ボタンを一回り大きく */
+      min-height: 64px;
+      font-size: 20px;
+      border-radius: 10px;
       border: none;
       cursor: pointer;
       background: #333;
